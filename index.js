@@ -40,12 +40,13 @@ function getMongoIdQuery(id) {
 }
 
 // ==========================================
-// JET token verufy
+// JWT token verify
 // ==========================================
 
-
-
-
+const jwksUrl = new URL(
+  process.env.JWKS_URL || "http://localhost:3000/api/auth/jwks"
+);
+const JWKS = createRemoteJWKSet(jwksUrl);
 
 const verifyApi = async (req, res, next) => {
   try {
@@ -57,14 +58,15 @@ const verifyApi = async (req, res, next) => {
       });
     }
 
-    const token = authHeader.split(" ")[1];
-    const JWKS = createRemoteJWKSet(
-      new URL("http://localhost:3000/api/auth/jwks")
-    );
+    const token = authHeader.split(" ")[1]?.trim();
+
+    if (!token || token === "undefined" || token === "null") {
+      return res.status(401).send({
+        message: "Unauthorized: Token missing or invalid",
+      });
+    }
 
     const { payload } = await jwtVerify(token, JWKS);
-    console.log(payload)
-
     req.user = payload;
 
     next();
@@ -80,7 +82,7 @@ const verifyApi = async (req, res, next) => {
 // ==========================================
 // 1. CREATE EVENT
 // ==========================================
-app.post("/create-event", async (req, res) => {
+app.post("/create-event", verifyApi, async (req, res) => {
   try {
     const eventData = req.body;
 
@@ -114,12 +116,18 @@ app.post("/create-event", async (req, res) => {
 });
 
 // ==========================================
-// 2. GET ALL EVENTS
+// 2. GET ALL EVENTS (UPCOMING OR BY EMAIL QUERY)
 // ==========================================
 app.get("/events", async (req, res) => {
   try {
-    const today = new Date().toISOString().split("T")[0];
+    const { email } = req.query;
+    if (email) {
+      const decodedEmail = decodeURIComponent(String(email));
+      const userEvents = await eventsCollection.find({ email: decodedEmail }).toArray();
+      return res.send(userEvents);
+    }
 
+    const today = new Date().toISOString().split("T")[0];
 
     const upcomingEvents = await eventsCollection.find({
       date: { $gte: today },
@@ -138,18 +146,25 @@ app.get("/events", async (req, res) => {
 // ==========================================
 
 app.get("/recentevents", async (req, res) => {
-  const events = await eventsCollection
-    .find()
-    .sort({ createdAt: -1 })
-    .limit(6)
-    .toArray();
+  try {
+    const events = await eventsCollection
+      .find()
+      .sort({ createdAt: -1 })
+      .limit(6)
+      .toArray();
 
-  res.send(events)
-
-})
+    res.send(events);
+  } catch (error) {
+    console.error("Error fetching recent events:", error);
+    res.status(500).send({
+      success: false,
+      message: "Failed to fetch recent events.",
+    });
+  }
+});
 
 // ==========================================
-// 3. GET SINGLE EVENT BY ID
+// 3. GET SINGLE EVENT BY ID (EXPLICIT)
 // ==========================================
 app.get("/events/single/:id", async (req, res) => {
   try {
@@ -175,11 +190,59 @@ app.get("/events/single/:id", async (req, res) => {
 });
 
 // ==========================================
+// 3.1 GET SINGLE EVENT OR DELEGATE TO EMAIL
+// ==========================================
+app.get("/events/:id", async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const decodedId = decodeURIComponent(id);
+
+    // If param is an email address, pass to next route (verifyApi + email handler)
+    if (decodedId.includes("@")) {
+      return next();
+    }
+
+    const query = getMongoIdQuery(decodedId);
+    const event = await eventsCollection.findOne(query);
+
+    if (!event) {
+      return res.status(404).send({
+        success: false,
+        message: "Event not found.",
+      });
+    }
+
+    res.send(event);
+  } catch (error) {
+    console.error("Error fetching single event:", error);
+    res.status(500).send({
+      success: false,
+      message: "Failed to fetch event.",
+    });
+  }
+});
+
+// ==========================================
 // 4. GET EVENTS BY CREATOR EMAIL
 // ==========================================
-app.get("/events/:email", async (req, res) => {
+app.get("/events/:email", verifyApi, async (req, res) => {
   try {
-    const email = req.params.email;
+    const email = decodeURIComponent(req.params.email);
+    const events = await eventsCollection.find({ email: email }).toArray();
+    res.send(events);
+  } catch (error) {
+    console.error("Error fetching user events:", error);
+    res.status(500).send({
+      success: false,
+      message: "Failed to fetch user events.",
+    });
+  }
+});
+
+// Alias for explicit user email route
+app.get("/events/user/:email", verifyApi, async (req, res) => {
+  try {
+    const email = decodeURIComponent(req.params.email);
     const events = await eventsCollection.find({ email: email }).toArray();
     res.send(events);
   } catch (error) {
@@ -194,7 +257,7 @@ app.get("/events/:email", async (req, res) => {
 // ==========================================
 // 5. UPDATE EVENT
 // ==========================================
-app.put("/events/:id", async (req, res) => {
+app.put("/events/:id", verifyApi, async (req, res) => {
   try {
     const { id } = req.params;
     const updateData = { ...req.body };
@@ -229,11 +292,12 @@ app.put("/events/:id", async (req, res) => {
 // ==========================================
 // 6. DELETE EVENT (BY EMAIL & ID)
 // ==========================================
-app.delete("/events/:email/:id", async (req, res) => {
+app.delete("/events/:email/:id", verifyApi, async (req, res) => {
   try {
     const { email, id } = req.params;
+    const decodedEmail = decodeURIComponent(email);
     const query = {
-      email: email,
+      email: decodedEmail,
       ...getMongoIdQuery(id),
     };
 
@@ -274,7 +338,7 @@ app.delete("/events/:id", async (req, res) => {
 // ==========================================
 // 7. JOIN EVENT (REGISTER)
 // ==========================================
-app.post("/join-event", async (req, res) => {
+app.post("/join-event", verifyApi, async (req, res) => {
   try {
     const joinData = req.body;
 
@@ -365,7 +429,7 @@ app.get("/join-event/status", async (req, res) => {
 // 9. LEAVE EVENT (DELETE REGISTRATION)
 // ==========================================
 // Leave by body: { eventId, userEmail }
-app.delete("/join-event", async (req, res) => {
+app.delete("/join-event", verifyApi, async (req, res) => {
   try {
     const { eventId, userEmail } = req.body;
 
@@ -412,7 +476,7 @@ app.delete("/join-event", async (req, res) => {
 });
 
 // Leave by registration document ID
-app.delete("/join-event/:id", async (req, res) => {
+app.delete("/join-event/:id", verifyApi, async (req, res) => {
   try {
     const { id } = req.params;
     const query = getMongoIdQuery(id);
@@ -446,7 +510,7 @@ app.delete("/join-event/:id", async (req, res) => {
 // ==========================================
 app.get("/join-event/:email", verifyApi, async (req, res) => {
   try {
-    const email = req.params.email;
+    const email = decodeURIComponent(req.params.email);
     const joinedEvents = await registrationsCollection
       .find({ email: email })
       .toArray();
@@ -460,22 +524,6 @@ app.get("/join-event/:email", verifyApi, async (req, res) => {
   }
 });
 
-// Alias for compatibility
-app.get("/joined-events/:email", async (req, res) => {
-  try {
-    const email = req.params.email;
-    const joinedEvents = await registrationsCollection
-      .find({ email: email })
-      .toArray();
-    res.send(joinedEvents);
-  } catch (error) {
-    console.error("Error fetching joined events (alias):", error);
-    res.status(500).send({
-      success: false,
-      message: "Failed to fetch joined events.",
-    });
-  }
-});
 
 // ==========================================
 // ROOT & HEALTH CHECK
