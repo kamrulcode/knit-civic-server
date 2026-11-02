@@ -94,6 +94,20 @@ app.get("/events", async (req, res) => {
     });
   }
 });
+// ==========================================
+// 2.1 GET six EVENT BY date
+// ==========================================
+
+app.get("/recentevents", async (req, res) => {
+  const events = await eventsCollection
+    .find()
+    .sort({ createdAt: -1 })
+    .limit(6)
+    .toArray();
+
+  res.send(events)
+
+})
 
 // ==========================================
 // 3. GET SINGLE EVENT BY ID
