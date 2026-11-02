@@ -2,6 +2,7 @@ import express from "express";
 import { MongoClient, ObjectId } from "mongodb";
 import "dotenv/config";
 import cors from "cors";
+import { createRemoteJWKSet, jwtVerify } from "jose";
 
 const app = express();
 const port = 8000;
@@ -37,6 +38,44 @@ function getMongoIdQuery(id) {
   }
   return { _id: id };
 }
+
+// ==========================================
+// JET token verufy
+// ==========================================
+
+
+
+
+
+const verifyApi = async (req, res, next) => {
+  try {
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader?.startsWith("Bearer ")) {
+      return res.status(401).send({
+        message: "Unauthorized: Token missing",
+      });
+    }
+
+    const token = authHeader.split(" ")[1];
+    const JWKS = createRemoteJWKSet(
+      new URL("http://localhost:3000/api/auth/jwks")
+    );
+
+    const { payload } = await jwtVerify(token, JWKS);
+    console.log(payload)
+
+    req.user = payload;
+
+    next();
+  } catch (error) {
+    console.error("JWT verification failed:", error.message);
+
+    return res.status(401).send({
+      message: "Invalid or expired token",
+    });
+  }
+};
 
 // ==========================================
 // 1. CREATE EVENT
@@ -405,7 +444,7 @@ app.delete("/join-event/:id", async (req, res) => {
 // ==========================================
 // 10. GET JOINED EVENTS FOR A USER
 // ==========================================
-app.get("/join-event/:email", async (req, res) => {
+app.get("/join-event/:email", verifyApi, async (req, res) => {
   try {
     const email = req.params.email;
     const joinedEvents = await registrationsCollection
