@@ -44,7 +44,7 @@ function getMongoIdQuery(id) {
 // ==========================================
 
 const jwksUrl = new URL(
-  process.env.JWKS_URL || "http://localhost:3000/api/auth/jwks"
+  process.env.JWKS_URL || "http://localhost:3000/api/auth/jwks",
 );
 const JWKS = createRemoteJWKSet(jwksUrl);
 
@@ -123,15 +123,20 @@ app.get("/events", async (req, res) => {
     const { email } = req.query;
     if (email) {
       const decodedEmail = decodeURIComponent(String(email));
-      const userEvents = await eventsCollection.find({ email: decodedEmail }).toArray();
+      const userEvents = await eventsCollection
+        .find({ email: decodedEmail })
+        .toArray();
       return res.send(userEvents);
     }
 
     const today = new Date().toISOString().split("T")[0];
 
-    const upcomingEvents = await eventsCollection.find({
-      date: { $gte: today },
-    }).sort({ date: 1 }).toArray();
+    const upcomingEvents = await eventsCollection
+      .find({
+        date: { $gte: today },
+      })
+      .sort({ date: 1 })
+      .toArray();
     res.send(upcomingEvents);
   } catch (error) {
     console.error("Error fetching all events:", error);
@@ -524,12 +529,11 @@ app.get("/join-event/:email", verifyApi, async (req, res) => {
   }
 });
 
-
 // ==========================================
 // ROOT & HEALTH CHECK
 // ==========================================
 app.get("/", (req, res) => {
-  res.send("KnitCivic Server API is running smoothly!");
+  res.send("KnitCivic Server  is running ");
 });
 
 app.listen(port, () => {
