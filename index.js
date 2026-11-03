@@ -43,9 +43,7 @@ function getMongoIdQuery(id) {
 // JWT token verify
 // ==========================================
 
-const jwksUrl = new URL(
-  process.env.JWKS_URL || "http://localhost:3000/api/auth/jwks",
-);
+const jwksUrl = new URL(`${process.env.CLIENT_URL}/api/auth/jwks`);
 const JWKS = createRemoteJWKSet(jwksUrl);
 
 const verifyApi = async (req, res, next) => {
@@ -539,3 +537,5 @@ app.get("/", (req, res) => {
 app.listen(port, () => {
   console.log(`KnitCivic Server is running on http://localhost:${port}`);
 });
+
+export default app;
